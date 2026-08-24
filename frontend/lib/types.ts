@@ -32,3 +32,28 @@ export type Relationship = {
   relationship_type: string;
   created_at: string;
 };
+
+export type Story = {
+  id: string;
+  user_id: string;
+  family_member_id?: string | null;
+  title: string;
+  content: string;
+  source_type: string;
+  source_language: string;
+  summary: string;
+  occurred_at?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WisdomExtract = {
+  id: string;
+  story_id: string;
+  excerpt: string;
+  wisdom_type: string;
+  language: string;
+  meaning: string;
+  confidence: number;
+  created_at: string;
+};
