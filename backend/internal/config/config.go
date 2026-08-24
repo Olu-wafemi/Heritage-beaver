@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -13,17 +14,24 @@ type Config struct {
 	DatabaseURL    string
 	JWTSecret      string
 	AllowedOrigins string
+
+	RateLimitRPS              int
+	RateLimitBurst            int
+	AIRequestsPerMinute       int
 }
 
 func Load() Config {
 	loadDotEnv()
 
 	return Config{
-		Environment:    getEnv("APP_ENV", "development"),
-		Port:           getEnv("PORT", "8080"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/heritage_weaver?sslmode=disable"),
-		JWTSecret:      getEnv("JWT_SECRET", "dev-secret-do-not-use-in-production"),
-		AllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		Environment:         getEnv("APP_ENV", "development"),
+		Port:                getEnv("PORT", "8080"),
+		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/heritage_weaver?sslmode=disable"),
+		JWTSecret:           getEnv("JWT_SECRET", "dev-secret-do-not-use-in-production"),
+		AllowedOrigins:      getEnv("CORS_ALLOWED_ORIGINS", "*"),
+		RateLimitRPS:        getEnvInt("RATE_LIMIT_RPS", 10),
+		RateLimitBurst:      getEnvInt("RATE_LIMIT_BURST", 20),
+		AIRequestsPerMinute: getEnvInt("AI_RATE_LIMIT_PER_MINUTE", 10),
 	}
 }
 
@@ -42,4 +50,16 @@ func getEnv(key, fallback string) string {
 	}
 
 	return value
+}
+
+func getEnvInt(key string, fallback int) int {
+	raw := os.Getenv(key)
+	if raw == "" {
+		return fallback
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return val
 }

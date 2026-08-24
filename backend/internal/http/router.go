@@ -3,6 +3,7 @@ package http
 import (
 	"database/sql"
 	stdhttp "net/http"
+	"time"
 
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/config"
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/http/handlers"
@@ -28,6 +29,7 @@ func NewRouter(deps Dependencies) stdhttp.Handler {
 	relationshipHandler := handlers.NewRelationshipHandler(relationshipRepo)
 	storyHandler := handlers.NewStoryHandler(storyRepo)
 	wisdomHandler := handlers.NewWisdomHandler(storyRepo, wisdomRepo)
+	familyTreeHandler := handlers.NewFamilyTreeHandler(familyMemberRepo, relationshipRepo)
 
 	authHandler := handlers.NewAuthHandler(userRepo)
 
@@ -38,7 +40,9 @@ func NewRouter(deps Dependencies) stdhttp.Handler {
 	mux.HandleFunc("POST /auth/refresh", authHandler.Refresh)
 
 	protected := AuthMiddleware(deps.Config.JWTSecret)
+	aiLimiter := NewRateLimiter(deps.Config.AIRequestsPerMinute, time.Minute)
 
+	mux.Handle("GET /family/tree", protected(stdhttp.HandlerFunc(familyTreeHandler.Tree)))
 	mux.Handle("POST /users", protected(stdhttp.HandlerFunc(userHandler.Create)))
 	mux.Handle("GET /users", protected(stdhttp.HandlerFunc(userHandler.List)))
 	mux.Handle("GET /users/{id}", protected(stdhttp.HandlerFunc(userHandler.Get)))
@@ -59,8 +63,11 @@ func NewRouter(deps Dependencies) stdhttp.Handler {
 	mux.Handle("GET /stories/{id}", protected(stdhttp.HandlerFunc(storyHandler.Get)))
 	mux.Handle("PATCH /stories/{id}", protected(stdhttp.HandlerFunc(storyHandler.Update)))
 	mux.Handle("DELETE /stories/{id}", protected(stdhttp.HandlerFunc(storyHandler.Delete)))
-	mux.Handle("POST /stories/{id}/process-wisdom", protected(stdhttp.HandlerFunc(wisdomHandler.ProcessWisdom)))
+	mux.Handle("POST /stories/{id}/process-wisdom", protected(aiLimiter.Middleware()(stdhttp.HandlerFunc(wisdomHandler.ProcessWisdom))))
 	mux.Handle("GET /wisdom-extracts", protected(stdhttp.HandlerFunc(wisdomHandler.List)))
 
-	return mux
+	handler := stdhttp.Handler(mux)
+	handler = RequestLoggingMiddleware()(handler)
+	handler = CORSMiddleware(deps.Config.AllowedOrigins)(handler)
+	return handler
 }
