@@ -1,17 +1,14 @@
 package main
 
 import (
-	"context"
+	"database/sql"
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"sort"
-	"strings"
+
+	"github.com/pressly/goose/v3"
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/config"
-	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/store/postgres"
 )
 
 func main() {
@@ -19,36 +16,17 @@ func main() {
 	flag.Parse()
 
 	cfg := config.Load()
-	db, err := postgres.New(context.Background(), cfg.DatabaseURL)
+	db, err := sql.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("connect database: %v", err)
+		log.Fatalf("open database: %v", err)
 	}
 	defer db.Close()
 
-	entries, err := os.ReadDir(*dir)
-	if err != nil {
-		log.Fatalf("read migrations dir: %v", err)
+	if err := goose.SetDialect("postgres"); err != nil {
+		log.Fatalf("set dialect: %v", err)
 	}
 
-	files := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
-			continue
-		}
-		files = append(files, filepath.Join(*dir, entry.Name()))
-	}
-	sort.Strings(files)
-
-	for _, file := range files {
-		contents, err := os.ReadFile(file)
-		if err != nil {
-			log.Fatalf("read migration %s: %v", file, err)
-		}
-
-		if _, err := db.ExecContext(context.Background(), string(contents)); err != nil {
-			log.Fatalf("apply migration %s: %v", file, err)
-		}
-
-		fmt.Printf("applied %s\n", file)
+	if err := goose.Up(db, *dir); err != nil {
+		log.Fatalf("apply migrations: %v", err)
 	}
 }
