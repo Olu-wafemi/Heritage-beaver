@@ -73,13 +73,13 @@ func (r RelationshipRepository) ListByUserID(ctx context.Context, userID string)
 	return relationships, nil
 }
 
-func (r RelationshipRepository) GetByID(ctx context.Context, id string) (domain.Relationship, error) {
+func (r RelationshipRepository) GetByIDForUser(ctx context.Context, id, userID string) (domain.Relationship, error) {
 	query := `
 		SELECT id, user_id, source_member_id, target_member_id, relationship_type, created_at
 		FROM relationships
-		WHERE id = $1`
+		WHERE id = $1 AND user_id = $2`
 
-	rel, err := r.queryOne(ctx, query, id)
+	rel, err := r.queryOne(ctx, query, id, userID)
 	if err != nil {
 		return domain.Relationship{}, fmt.Errorf("get relationship by id: %w", err)
 	}
@@ -90,11 +90,10 @@ func (r RelationshipRepository) GetByID(ctx context.Context, id string) (domain.
 func (r RelationshipRepository) Update(ctx context.Context, params UpsertRelationshipParams) (domain.Relationship, error) {
 	query := `
 		UPDATE relationships
-		SET user_id = $2,
-		    source_member_id = $3,
+		SET source_member_id = $3,
 		    target_member_id = $4,
 		    relationship_type = $5
-		WHERE id = $1
+		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, source_member_id, target_member_id, relationship_type, created_at`
 
 	rel, err := r.queryOne(ctx, query,
@@ -111,8 +110,8 @@ func (r RelationshipRepository) Update(ctx context.Context, params UpsertRelatio
 	return rel, nil
 }
 
-func (r RelationshipRepository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM relationships WHERE id = $1`, id)
+func (r RelationshipRepository) Delete(ctx context.Context, id, userID string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM relationships WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete relationship: %w", err)
 	}

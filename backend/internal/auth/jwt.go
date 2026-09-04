@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"time"
@@ -8,17 +11,26 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	TokenIssuer      = "heritage-weaver"
+	AccessTokenTTL   = 30 * time.Minute
+	RefreshTokenTTL  = 30 * 24 * time.Hour
+	MinPasswordChars = 8
+)
+
 type Claims struct {
 	UserID string `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID string, secret string) (string, error) {
+func GenerateAccessToken(userID string, secret string) (string, error) {
+	now := time.Now()
 	claims := Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    TokenIssuer,
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenTTL)),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 
@@ -29,6 +41,28 @@ func GenerateToken(userID string, secret string) (string, error) {
 	}
 
 	return signed, nil
+}
+
+// GenerateToken is kept for compatibility and delegates to GenerateAccessToken.
+func GenerateToken(userID string, secret string) (string, error) {
+	return GenerateAccessToken(userID, secret)
+}
+
+// GenerateRefreshToken returns an opaque token and its SHA-256 hash.
+// Only the hash is stored; the token itself is shown once to the client.
+func GenerateRefreshToken() (token string, hash string, err error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", fmt.Errorf("random refresh token: %w", err)
+	}
+
+	token = hex.EncodeToString(raw)
+	return token, HashRefreshToken(token), nil
+}
+
+func HashRefreshToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func ValidateToken(tokenString string, secret string) (*Claims, error) {
@@ -45,6 +79,14 @@ func ValidateToken(tokenString string, secret string) (*Claims, error) {
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	if claims.Issuer != "" && claims.Issuer != TokenIssuer {
+		return nil, fmt.Errorf("unexpected token issuer")
+	}
+
+	if claims.UserID == "" {
+		return nil, fmt.Errorf("token missing subject")
 	}
 
 	return claims, nil

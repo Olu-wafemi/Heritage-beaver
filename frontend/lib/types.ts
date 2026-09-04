@@ -57,3 +57,14 @@ export type WisdomExtract = {
   confidence: number;
   created_at: string;
 };
+
+export type MythChapter = {
+  id: string;
+  user_id: string;
+  title: string;
+  theme: string;
+  chapter_type: string;
+  narrative: string;
+  created_at: string;
+  updated_at: string;
+};

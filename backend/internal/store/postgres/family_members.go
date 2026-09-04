@@ -95,15 +95,15 @@ func (r FamilyMemberRepository) ListByUserID(ctx context.Context, userID string)
 	return members, nil
 }
 
-func (r FamilyMemberRepository) GetByID(ctx context.Context, id string) (domain.FamilyMember, error) {
+func (r FamilyMemberRepository) GetByIDForUser(ctx context.Context, id, userID string) (domain.FamilyMember, error) {
 	query := `
 		SELECT id, user_id, first_name, COALESCE(last_name, ''), display_name, COALESCE(gender, ''),
 		       birth_date, death_date, COALESCE(birth_place, ''), COALESCE(biography, ''), is_living,
 		       COALESCE(primary_language, ''), created_at, updated_at
 		FROM family_members
-		WHERE id = $1`
+		WHERE id = $1 AND user_id = $2`
 
-	member, err := r.queryOne(ctx, query, id)
+	member, err := r.queryOne(ctx, query, id, userID)
 	if err != nil {
 		return domain.FamilyMember{}, fmt.Errorf("get family member by id: %w", err)
 	}
@@ -114,8 +114,7 @@ func (r FamilyMemberRepository) GetByID(ctx context.Context, id string) (domain.
 func (r FamilyMemberRepository) Update(ctx context.Context, params UpsertFamilyMemberParams) (domain.FamilyMember, error) {
 	query := `
 		UPDATE family_members
-		SET user_id = $2,
-		    first_name = $3,
+		SET first_name = $3,
 		    last_name = NULLIF($4, ''),
 		    display_name = $5,
 		    gender = NULLIF($6, ''),
@@ -126,7 +125,7 @@ func (r FamilyMemberRepository) Update(ctx context.Context, params UpsertFamilyM
 		    is_living = $11,
 		    primary_language = NULLIF($12, ''),
 		    updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, first_name, COALESCE(last_name, ''), display_name, COALESCE(gender, ''),
 		          birth_date, death_date, COALESCE(birth_place, ''), COALESCE(biography, ''), is_living,
 		          COALESCE(primary_language, ''), created_at, updated_at`
@@ -152,8 +151,8 @@ func (r FamilyMemberRepository) Update(ctx context.Context, params UpsertFamilyM
 	return member, nil
 }
 
-func (r FamilyMemberRepository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM family_members WHERE id = $1`, id)
+func (r FamilyMemberRepository) Delete(ctx context.Context, id, userID string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM family_members WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete family member: %w", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/auth"
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/store/postgres"
 )
 
@@ -14,7 +15,6 @@ type FamilyMemberHandler struct {
 }
 
 type familyMemberRequest struct {
-	UserID          string  `json:"user_id"`
 	FirstName       string  `json:"first_name"`
 	LastName        string  `json:"last_name"`
 	DisplayName     string  `json:"display_name"`
@@ -32,18 +32,21 @@ func NewFamilyMemberHandler(repo postgres.FamilyMemberRepository) FamilyMemberHa
 }
 
 func (h FamilyMemberHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	params, ok := h.decodeRequest(w, r)
 	if !ok {
 		return
 	}
 
+	params.UserID = userID
+
 	familyMember, err := h.repo.Create(r.Context(), params)
 	if err != nil {
-		if postgres.IsForeignKeyViolation(err) {
-			writeError(w, http.StatusBadRequest, "user_id does not reference an existing user")
-			return
-		}
-
 		writeError(w, http.StatusInternalServerError, "failed to create family member")
 		return
 	}
@@ -52,9 +55,9 @@ func (h FamilyMemberHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h FamilyMemberHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
+	userID := auth.UserIDFromContext(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusBadRequest, "user_id query parameter is required")
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -68,7 +71,13 @@ func (h FamilyMemberHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h FamilyMemberHandler) Get(w http.ResponseWriter, r *http.Request) {
-	familyMember, err := h.repo.GetByID(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	familyMember, err := h.repo.GetByIDForUser(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "family member not found")
@@ -83,21 +92,23 @@ func (h FamilyMemberHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h FamilyMemberHandler) Update(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	params, ok := h.decodeRequest(w, r)
 	if !ok {
 		return
 	}
 
 	params.ID = r.PathValue("id")
+	params.UserID = userID
 	familyMember, err := h.repo.Update(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "family member not found")
-			return
-		}
-
-		if postgres.IsForeignKeyViolation(err) {
-			writeError(w, http.StatusBadRequest, "user_id does not reference an existing user")
 			return
 		}
 
@@ -109,7 +120,13 @@ func (h FamilyMemberHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h FamilyMemberHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	err := h.repo.Delete(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	err := h.repo.Delete(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "family member not found")
@@ -126,11 +143,6 @@ func (h FamilyMemberHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h FamilyMemberHandler) decodeRequest(w http.ResponseWriter, r *http.Request) (postgres.UpsertFamilyMemberParams, bool) {
 	var req familyMemberRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return postgres.UpsertFamilyMemberParams{}, false
-	}
-
-	if err := required(req.UserID, "user_id"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return postgres.UpsertFamilyMemberParams{}, false
 	}
@@ -158,7 +170,6 @@ func (h FamilyMemberHandler) decodeRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	return postgres.UpsertFamilyMemberParams{
-		UserID:          req.UserID,
 		FirstName:       req.FirstName,
 		LastName:        req.LastName,
 		DisplayName:     req.DisplayName,

@@ -8,6 +8,7 @@ type User struct {
 	DisplayName    string    `json:"display_name"`
 	PasswordHash   string    `json:"-"`
 	PrimaryCulture string    `json:"primary_culture"`
+	EmailVerified  bool      `json:"email_verified"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }
@@ -64,14 +65,14 @@ type WisdomExtract struct {
 }
 
 type MythChapter struct {
-	ID          string
-	UserID      string
-	Title       string
-	Theme       string
-	ChapterType string
-	Narrative   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID          string    `json:"id"`
+	UserID      string    `json:"user_id"`
+	Title       string    `json:"title"`
+	Theme       string    `json:"theme"`
+	ChapterType string    `json:"chapter_type"`
+	Narrative   string    `json:"narrative"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 type AncestorProfile struct {

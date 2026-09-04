@@ -72,7 +72,13 @@ func (h StoryHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h StoryHandler) Get(w http.ResponseWriter, r *http.Request) {
-	story, err := h.repo.GetByID(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	story, err := h.repo.GetByIDForUser(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "story not found")
@@ -121,7 +127,13 @@ func (h StoryHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h StoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	err := h.repo.Delete(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	err := h.repo.Delete(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "story not found")

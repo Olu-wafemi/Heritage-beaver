@@ -3,15 +3,27 @@ package handlers
 import (
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
+	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/auth"
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/domain"
+	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/mail"
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/store/postgres"
 )
 
+const verificationTTL = 24 * time.Hour
+
 type AuthHandler struct {
-	repo postgres.UserRepository
+	users   postgres.UserRepository
+	refresh postgres.RefreshTokenRepository
+	verify  postgres.VerificationTokenRepository
+	mailer  *mail.Mailer
+	baseURL string
+	secret  string
 }
 
 type registerRequest struct {
@@ -26,20 +38,30 @@ type loginRequest struct {
 }
 
 type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type verifyEmailRequest struct {
 	Token string `json:"token"`
+}
+
+type resendVerificationRequest struct {
+	Email string `json:"email"`
 }
 
 type authResponse struct {
-	User  domain.User `json:"user"`
-	Token string      `json:"token"`
+	User         domain.User `json:"user"`
+	Token        string      `json:"token"`
+	RefreshToken string      `json:"refresh_token"`
 }
 
-type refreshResponse struct {
-	Token string `json:"token"`
+type registerResponse struct {
+	User    domain.User `json:"user"`
+	Message string      `json:"message"`
 }
 
-func NewAuthHandler(repo postgres.UserRepository) AuthHandler {
-	return AuthHandler{repo: repo}
+func NewAuthHandler(repo postgres.UserRepository, refreshRepo postgres.RefreshTokenRepository, verifyRepo postgres.VerificationTokenRepository, mailer *mail.Mailer, baseURL, secret string) AuthHandler {
+	return AuthHandler{users: repo, refresh: refreshRepo, verify: verifyRepo, mailer: mailer, baseURL: strings.TrimSuffix(baseURL, "/"), secret: secret}
 }
 
 func (h AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +76,7 @@ func (h AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := required(req.Password, "password"); err != nil {
+	if err := checkPassword(req.Password); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -70,7 +92,7 @@ func (h AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.repo.Create(r.Context(), postgres.CreateUserParams{
+	user, err := h.users.Create(r.Context(), postgres.CreateUserParams{
 		Email:          req.Email,
 		DisplayName:    req.DisplayName,
 		PrimaryCulture: "",
@@ -82,17 +104,19 @@ func (h AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		log.Printf("register user %s: %v", req.Email, err)
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, auth.GetSecret())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
-		return
+	if err := h.sendVerificationEmail(r, user); err != nil {
+		log.Printf("send verification email for %s: %v", user.ID, err)
 	}
 
-	writeJSON(w, http.StatusCreated, authResponse{User: user, Token: token})
+	writeJSON(w, http.StatusCreated, registerResponse{
+		User:    user,
+		Message: "Account created. Check your inbox for a confirmation link to begin.",
+	})
 }
 
 func (h AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +136,7 @@ func (h AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.repo.GetByEmail(r.Context(), req.Email)
+	user, err := h.users.GetByEmail(r.Context(), req.Email)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusUnauthorized, "invalid email or password")
@@ -128,17 +152,16 @@ func (h AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, auth.GetSecret())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate token")
+	if !user.EmailVerified {
+		writeError(w, http.StatusForbidden, "email not verified — check your inbox for the confirmation link")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, authResponse{User: user, Token: token})
+	h.writeTokenPair(w, r, user)
 }
 
-func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
-	var req refreshRequest
+func (h AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req verifyEmailRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -149,17 +172,204 @@ func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims, err := auth.ValidateToken(req.Token, auth.GetSecret())
+	stored, err := h.verify.FindByHash(r.Context(), auth.HashRefreshToken(req.Token))
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "invalid or expired token")
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusBadRequest, "invalid or expired confirmation link")
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, "failed to confirm email")
 		return
 	}
 
-	token, err := auth.GenerateToken(claims.UserID, auth.GetSecret())
+	if stored.Consumed || time.Now().After(stored.ExpiresAt) {
+		writeError(w, http.StatusBadRequest, "invalid or expired confirmation link")
+		return
+	}
+
+	if err := h.verify.Consume(r.Context(), stored.ID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusBadRequest, "invalid or expired confirmation link")
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, "failed to confirm email")
+		return
+	}
+
+	if err := h.users.SetEmailVerified(r.Context(), stored.UserID); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to confirm email")
+		return
+	}
+
+	user, err := h.users.GetByID(r.Context(), stored.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to confirm email")
+		return
+	}
+
+	h.writeTokenPair(w, r, user)
+}
+
+func (h AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req resendVerificationRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := required(req.Email, "email"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Always 200: never reveal whether an address is registered.
+	user, err := h.users.GetByEmail(r.Context(), req.Email)
+	if err == nil && !user.EmailVerified {
+		if err := h.sendVerificationEmail(r, user); err != nil {
+			log.Printf("resend verification email for %s: %v", user.ID, err)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "If the address is registered and unconfirmed, a new link is on its way.",
+	})
+}
+
+func (h AuthHandler) sendVerificationEmail(r *http.Request, user domain.User) error {
+	token, hash, err := auth.GenerateRefreshToken()
+	if err != nil {
+		return err
+	}
+
+	_ = h.verify.DeleteForUser(r.Context(), user.ID)
+
+	if _, err := h.verify.Create(r.Context(), user.ID, hash, time.Now().Add(verificationTTL)); err != nil {
+		return err
+	}
+
+	link := h.baseURL + "/verify-email?token=" + token
+	return h.mailer.SendVerificationEmail(r.Context(), user.Email, link)
+}
+
+func (h AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := required(req.RefreshToken, "refresh_token"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stored, err := h.refresh.FindByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+			return
+		}
+
+		writeError(w, http.StatusInternalServerError, "failed to look up session")
+		return
+	}
+
+	// Reuse of a rotated (revoked) token signals theft: kill the whole family.
+	if stored.RevokedAt != nil {
+		_ = h.refresh.RevokeAllForUser(r.Context(), stored.UserID)
+		writeError(w, http.StatusUnauthorized, "session reused; signed out everywhere")
+		return
+	}
+
+	if time.Now().After(stored.ExpiresAt) {
+		_ = h.refresh.Revoke(r.Context(), stored.ID, nil)
+		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		return
+	}
+
+	user, err := h.users.GetByID(r.Context(), stored.UserID)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "invalid or expired refresh token")
+		return
+	}
+
+	// Rotate: mint the replacement first, then revoke the presented token.
+	token, hash, err := auth.GenerateRefreshToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to rotate session")
+		return
+	}
+
+	replacement, err := h.refresh.Create(r.Context(), stored.UserID, hash, time.Now().Add(auth.RefreshTokenTTL))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to rotate session")
+		return
+	}
+
+	if err := h.refresh.Revoke(r.Context(), stored.ID, &replacement.ID); err != nil {
+		_ = h.refresh.Revoke(r.Context(), replacement.ID, nil)
+		writeError(w, http.StatusInternalServerError, "failed to rotate session")
+		return
+	}
+
+	access, err := auth.GenerateAccessToken(user.ID, h.secret)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to generate token")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, refreshResponse{Token: token})
+	writeJSON(w, http.StatusOK, authResponse{User: user, Token: access, RefreshToken: token})
+}
+
+func (h AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if err := required(req.RefreshToken, "refresh_token"); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	stored, err := h.refresh.FindByHash(r.Context(), auth.HashRefreshToken(req.RefreshToken))
+	if err != nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	_ = h.refresh.Revoke(r.Context(), stored.ID, nil)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h AuthHandler) writeTokenPair(w http.ResponseWriter, r *http.Request, user domain.User) {
+	access, err := auth.GenerateAccessToken(user.ID, h.secret)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	token, hash, err := auth.GenerateRefreshToken()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+
+	if _, err := h.refresh.Create(r.Context(), user.ID, hash, time.Now().Add(auth.RefreshTokenTTL)); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, authResponse{User: user, Token: access, RefreshToken: token})
+}
+
+func checkPassword(password string) error {
+	if utf8.RuneCountInString(password) < auth.MinPasswordChars {
+		return errors.New("password must be at least 8 characters")
+	}
+
+	return nil
 }

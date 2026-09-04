@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { useAuthStore } from "@/store/useAuthStore";
 import type { FamilyMember } from "@/lib/types";
 
 type FormState = {
@@ -24,6 +23,10 @@ const emptyForm: FormState = {
   biography: "",
   is_living: true,
 };
+
+const inputClass =
+  "mt-1.5 w-full rounded-lg border border-parchment-300 bg-parchment-50 px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-ember-600 focus:ring-2 focus:ring-ember-100";
+const labelClass = "block text-sm font-medium text-ink-900";
 
 export default function FamilyPage() {
   const [members, setMembers] = useState<FamilyMember[] | null>(null);
@@ -74,8 +77,7 @@ export default function FamilyPage() {
     setError(null);
     try {
       const token = localStorage.getItem("token") ?? "";
-      const userId = useAuthStore.getState().user?.id ?? "";
-      const body = JSON.stringify({ ...form, user_id: userId });
+      const body = JSON.stringify({ ...form });
       if (editingId) {
         await apiFetch(`/family-members/${editingId}`, { method: "PATCH", body, token });
       } else {
@@ -103,23 +105,27 @@ export default function FamilyPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-stone-900">Family</h1>
-          <p className="mt-1 text-sm text-stone-600">
-            The people whose stories weave your mythology.
+          <p className="font-mono text-xs tracking-[0.25em] text-ember-600">STAGE I — GATHER</p>
+          <h1 className="mt-2 font-display text-4xl font-medium tracking-tight">The People</h1>
+          <p className="mt-2 max-w-lg leading-7 text-ink-700">
+            The people whose stories weave your mythology — the living and the remembered.
           </p>
         </div>
         <button
           onClick={openCreate}
-          className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800"
+          className="rounded-full bg-ember-600 px-5 py-2.5 text-sm font-semibold text-parchment-50 transition hover:bg-ember-700"
         >
-          Add member
+          Name someone
         </button>
       </div>
 
       {error && (
-        <div role="alert" className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div
+          role="alert"
+          className="mt-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
           {error}
         </div>
       )}
@@ -127,7 +133,7 @@ export default function FamilyPage() {
       {showForm && (
         <form
           onSubmit={onSubmit}
-          className="mt-6 space-y-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm"
+          className="mt-6 space-y-4 rounded-2xl border border-parchment-300 bg-parchment-100 p-6"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="First name" required value={form.first_name}
@@ -141,26 +147,26 @@ export default function FamilyPage() {
             <Field label="Birth place" value={form.birth_place}
               onChange={(v) => setForm((f) => ({ ...f, birth_place: v }))} />
             <div>
-              <label className="block text-sm font-medium text-stone-800">Living</label>
+              <label className={labelClass}>Standing</label>
               <select
                 value={form.is_living ? "yes" : "no"}
                 onChange={(e) => setForm((f) => ({ ...f, is_living: e.target.value === "yes" }))}
-                className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
+                className={inputClass}
               >
                 <option value="yes">Living</option>
-                <option value="no">Deceased</option>
+                <option value="no">In memory (deceased)</option>
               </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-stone-800">Biography</label>
+            <label className={labelClass}>Biography</label>
             <textarea
               rows={3}
               value={form.biography}
               onChange={(e) => setForm((f) => ({ ...f, biography: e.target.value }))}
               placeholder="A few words about their life…"
-              className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
+              className={inputClass}
             />
           </div>
 
@@ -168,14 +174,14 @@ export default function FamilyPage() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:opacity-60"
+              className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-semibold text-parchment-50 transition hover:bg-ember-700 disabled:opacity-60"
             >
-              {saving ? "Saving…" : editingId ? "Save changes" : "Add member"}
+              {saving ? "Keeping…" : editingId ? "Save changes" : "Add to the tree"}
             </button>
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+              className="rounded-full border border-ink-900/20 px-5 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-parchment-100"
             >
               Cancel
             </button>
@@ -185,52 +191,68 @@ export default function FamilyPage() {
 
       <div className="mt-8">
         {members === null ? (
-          <div className="space-y-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-xl bg-stone-200/70" />
+          <div className="grid gap-4 sm:grid-cols-2">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-28 animate-pulse rounded-2xl bg-parchment-200/70" />
             ))}
           </div>
         ) : members.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-stone-300 bg-white p-12 text-center">
-            <p className="text-lg font-medium text-stone-900">No family members yet</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-stone-600">
-              Every myth begins with its people. Add your first family member to start weaving.
+          <div className="rounded-2xl border border-dashed border-parchment-300 bg-parchment-100 p-12 text-center">
+            <p className="font-display text-2xl font-medium">No faces on the wall yet</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-700">
+              Every myth begins with its people. Name your first family member to start
+              weaving.
             </p>
             <button
               onClick={openCreate}
-              className="mt-5 rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800"
+              className="mt-5 rounded-full bg-ember-600 px-5 py-2.5 text-sm font-semibold text-parchment-50 transition hover:bg-ember-700"
             >
-              Add your first member
+              Name the first person
             </button>
           </div>
         ) : (
-          <ul className="space-y-3">
+          <ul className="grid gap-4 sm:grid-cols-2">
             {members.map((m) => (
               <li
                 key={m.id}
-                className="flex items-center justify-between rounded-xl border border-stone-200 bg-white p-4 shadow-sm transition hover:border-stone-300"
+                className="flex items-start gap-4 rounded-2xl border border-parchment-300 bg-parchment-100 p-5 transition hover:border-gold-500"
               >
-                <div>
-                  <p className="font-medium text-stone-900">{m.display_name}</p>
-                  <p className="text-sm text-stone-500">
+                <span
+                  aria-hidden="true"
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-display text-xl font-semibold ${
+                    m.is_living ? "bg-palm-600 text-parchment-50" : "bg-ink-900 text-gold-200"
+                  }`}
+                >
+                  {(m.display_name || "?").trim().charAt(0).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-display text-lg font-semibold leading-snug">
+                    {m.display_name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-ink-500">
                     {[m.gender, m.birth_place, m.is_living ? "living" : "in memory"]
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => openEdit(m)}
-                    className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-100"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onDelete(m.id)}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
+                  {m.biography && (
+                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-ink-700">
+                      {m.biography}
+                    </p>
+                  )}
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      onClick={() => openEdit(m)}
+                      className="rounded-full border border-ink-900/20 px-3 py-1 text-xs font-medium text-ink-700 transition hover:bg-parchment-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => onDelete(m.id)}
+                      className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}
@@ -254,16 +276,16 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-stone-800">
+      <label className="block text-sm font-medium text-ink-900">
         {label}
-        {required && <span className="text-red-500"> *</span>}
+        {required && <span className="text-ember-600"> *</span>}
       </label>
       <input
         type="text"
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
+        className="mt-1.5 w-full rounded-lg border border-parchment-300 bg-parchment-50 px-3 py-2.5 text-sm text-ink-900 outline-none transition placeholder:text-ink-400 focus:border-ember-600 focus:ring-2 focus:ring-ember-100"
       />
     </div>
   );

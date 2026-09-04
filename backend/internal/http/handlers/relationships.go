@@ -5,27 +5,41 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/auth"
 	"github.com/oluwafemiomotoso/heritage-beaver/backend/internal/store/postgres"
 )
 
 type RelationshipHandler struct {
-	repo postgres.RelationshipRepository
+	repo    postgres.RelationshipRepository
+	members postgres.FamilyMemberRepository
 }
 
 type relationshipRequest struct {
-	UserID           string `json:"user_id"`
 	SourceMemberID   string `json:"source_member_id"`
 	TargetMemberID   string `json:"target_member_id"`
 	RelationshipType string `json:"relationship_type"`
 }
 
-func NewRelationshipHandler(repo postgres.RelationshipRepository) RelationshipHandler {
-	return RelationshipHandler{repo: repo}
+func NewRelationshipHandler(repo postgres.RelationshipRepository, members postgres.FamilyMemberRepository) RelationshipHandler {
+	return RelationshipHandler{repo: repo, members: members}
 }
 
 func (h RelationshipHandler) Create(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	params, ok := h.decodeRequest(w, r)
 	if !ok {
+		return
+	}
+
+	params.UserID = userID
+
+	if err := h.verifyMembersOwned(r, userID, params.SourceMemberID, params.TargetMemberID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -44,9 +58,9 @@ func (h RelationshipHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h RelationshipHandler) List(w http.ResponseWriter, r *http.Request) {
-	userID := r.URL.Query().Get("user_id")
+	userID := auth.UserIDFromContext(r.Context())
 	if userID == "" {
-		writeError(w, http.StatusBadRequest, "user_id query parameter is required")
+		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -60,7 +74,13 @@ func (h RelationshipHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h RelationshipHandler) Get(w http.ResponseWriter, r *http.Request) {
-	rel, err := h.repo.GetByID(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	rel, err := h.repo.GetByIDForUser(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "relationship not found")
@@ -75,12 +95,24 @@ func (h RelationshipHandler) Get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h RelationshipHandler) Update(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	params, ok := h.decodeRequest(w, r)
 	if !ok {
 		return
 	}
 
+	if err := h.verifyMembersOwned(r, userID, params.SourceMemberID, params.TargetMemberID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	params.ID = r.PathValue("id")
+	params.UserID = userID
 	rel, err := h.repo.Update(r.Context(), params)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -101,7 +133,13 @@ func (h RelationshipHandler) Update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h RelationshipHandler) Delete(w http.ResponseWriter, r *http.Request) {
-	err := h.repo.Delete(r.Context(), r.PathValue("id"))
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	err := h.repo.Delete(r.Context(), r.PathValue("id"), userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "relationship not found")
@@ -115,14 +153,29 @@ func (h RelationshipHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// verifyMembersOwned ensures both linked members belong to the requester and
+// that a person is not linked to themselves.
+func (h RelationshipHandler) verifyMembersOwned(r *http.Request, userID, sourceID, targetID string) error {
+	if sourceID == targetID {
+		return errors.New("a person can't be related to themselves")
+	}
+
+	for _, id := range []string{sourceID, targetID} {
+		if _, err := h.members.GetByIDForUser(r.Context(), id, userID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return errors.New("source_member_id or target_member_id does not reference one of your family members")
+			}
+
+			return errors.New("failed to verify family members")
+		}
+	}
+
+	return nil
+}
+
 func (h RelationshipHandler) decodeRequest(w http.ResponseWriter, r *http.Request) (postgres.UpsertRelationshipParams, bool) {
 	var req relationshipRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return postgres.UpsertRelationshipParams{}, false
-	}
-
-	if err := required(req.UserID, "user_id"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return postgres.UpsertRelationshipParams{}, false
 	}
@@ -143,7 +196,6 @@ func (h RelationshipHandler) decodeRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	return postgres.UpsertRelationshipParams{
-		UserID:           req.UserID,
 		SourceMemberID:   req.SourceMemberID,
 		TargetMemberID:   req.TargetMemberID,
 		RelationshipType: req.RelationshipType,

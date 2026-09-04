@@ -18,6 +18,19 @@ type Config struct {
 	RateLimitRPS              int
 	RateLimitBurst            int
 	AIRequestsPerMinute       int
+
+	LLMAPIURL  string
+	LLMAPIKey  string
+	LLMModel   string
+
+	ResendAPIKey string
+	EmailFrom    string
+	AppBaseURL   string
+
+	SMTPHost string
+	SMTPPort string
+	SMTPUser string
+	SMTPPass string
 }
 
 func Load() Config {
@@ -32,6 +45,17 @@ func Load() Config {
 		RateLimitRPS:        getEnvInt("RATE_LIMIT_RPS", 10),
 		RateLimitBurst:      getEnvInt("RATE_LIMIT_BURST", 20),
 		AIRequestsPerMinute: getEnvInt("AI_RATE_LIMIT_PER_MINUTE", 10),
+
+		LLMAPIURL: getEnv("LLM_API_URL", "https://opencode.ai/zen/v1/chat/completions"),
+		LLMAPIKey: os.Getenv("LLM_API_KEY"),
+		LLMModel:     getEnv("LLM_MODEL", "laguna-s-2.1-free"),
+		ResendAPIKey: getEnv("RESEND_API_KEY", ""),
+		EmailFrom:    getEnv("EMAIL_FROM", "Hearthside <onboarding@resend.dev>"),
+		AppBaseURL:   getEnv("APP_BASE_URL", "http://localhost:3000"),
+		SMTPHost:     getEnv("SMTP_HOST", ""),
+		SMTPPort:     getEnv("SMTP_PORT", "587"),
+		SMTPUser:     getEnv("SMTP_USER", ""),
+		SMTPPass:     getEnv("SMTP_PASS", ""),
 	}
 }
 

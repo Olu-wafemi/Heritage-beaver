@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { useAuthStore } from "@/store/useAuthStore";
 import type { FamilyMember, Relationship } from "@/lib/types";
 
 const RELATIONSHIP_TYPES = [
@@ -18,8 +17,10 @@ const RELATIONSHIP_TYPES = [
   "in_law",
 ];
 
+const inputClass =
+  "mt-1.5 w-full rounded-lg border border-parchment-300 bg-parchment-50 px-3 py-2.5 text-sm text-ink-900 outline-none transition focus:border-ember-600 focus:ring-2 focus:ring-ember-100";
+
 export default function RelationshipsPage() {
-  const user = useAuthStore((s) => s.user);
   const [relationships, setRelationships] = useState<Relationship[] | null>(null);
   const [members, setMembers] = useState<FamilyMember[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +31,10 @@ export default function RelationshipsPage() {
   const [relType, setRelType] = useState("");
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
     try {
       const token = localStorage.getItem("token") ?? "";
       const [rels, tree] = await Promise.all([
-        apiFetch<Relationship[]>(`/relationships?user_id=${user.id}`, { token }),
+        apiFetch<Relationship[]>("/relationships", { token }),
         apiFetch<{ members: FamilyMember[] }>("/family/tree", { token }),
       ]);
       setRelationships(rels);
@@ -43,7 +43,7 @@ export default function RelationshipsPage() {
       setError(err instanceof Error ? err.message : "Failed to load relationships");
       setRelationships([]);
     }
-  }, [user?.id]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -65,7 +65,6 @@ export default function RelationshipsPage() {
         method: "POST",
         token,
         body: JSON.stringify({
-          user_id: user?.id,
           source_member_id: sourceId,
           target_member_id: targetId,
           relationship_type: relType,
@@ -98,31 +97,38 @@ export default function RelationshipsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-stone-900">Relationships</h1>
-          <p className="mt-1 text-sm text-stone-600">
-            Link your family members together — this becomes your family tree.
+          <p className="font-mono text-xs tracking-[0.25em] text-ember-600">
+            STAGE I — GATHER, CONTINUED
+          </p>
+          <h1 className="mt-2 font-display text-4xl font-medium tracking-tight">The Bonds</h1>
+          <p className="mt-2 max-w-lg leading-7 text-ink-700">
+            Tie your people together — parent to child, sibling to sibling. The tree takes
+            shape from these threads.
           </p>
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
           disabled={members.length < 2}
-          title={members.length < 2 ? "Add at least two family members first" : undefined}
-          className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
+          title={members.length < 2 ? "Name at least two family members first" : undefined}
+          className="rounded-full bg-ember-600 px-5 py-2.5 text-sm font-semibold text-parchment-50 transition hover:bg-ember-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Link members
+          Tie a thread
         </button>
       </div>
 
       {members.length < 2 && (
-        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Add at least two family members before linking them.
+        <p className="mt-6 rounded-xl border border-gold-500/40 bg-gold-200/20 px-4 py-3 text-sm text-ink-700">
+          Name at least two family members before tying threads between them.
         </p>
       )}
 
       {error && (
-        <div role="alert" className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div
+          role="alert"
+          className="mt-6 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+        >
           {error}
         </div>
       )}
@@ -130,20 +136,20 @@ export default function RelationshipsPage() {
       {showForm && (
         <form
           onSubmit={onSubmit}
-          className="mt-6 space-y-4 rounded-xl border border-stone-200 bg-white p-6 shadow-sm"
+          className="mt-6 space-y-4 rounded-2xl border border-parchment-300 bg-parchment-100 p-6"
         >
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid items-end gap-4 sm:grid-cols-[1fr_auto_1fr] sm:gap-2">
             <div>
-              <label className="block text-sm font-medium text-stone-800">
-                From<span className="text-red-500"> *</span>
+              <label className="block text-sm font-medium text-ink-900">
+                From<span className="text-ember-600"> *</span>
               </label>
               <select
                 required
                 value={sourceId}
                 onChange={(e) => setSourceId(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
+                className={inputClass}
               >
-                <option value="">Select member</option>
+                <option value="">Choose a person</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.display_name}
@@ -152,36 +158,23 @@ export default function RelationshipsPage() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-stone-800">
-                Relationship<span className="text-red-500"> *</span>
-              </label>
-              <select
-                required
-                value={relType}
-                onChange={(e) => setRelType(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
-              >
-                <option value="">Select type</option>
-                {RELATIONSHIP_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
+            <div className="pb-1 text-center">
+              <span className="inline-block rounded-full bg-ember-100 px-3 py-1 font-mono text-xs text-ember-700">
+                is the
+              </span>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-stone-800">
-                To<span className="text-red-500"> *</span>
+              <label className="block text-sm font-medium text-ink-900">
+                Of<span className="text-ember-600"> *</span>
               </label>
               <select
                 required
                 value={targetId}
                 onChange={(e) => setTargetId(e.target.value)}
-                className="mt-1.5 w-full rounded-lg border border-stone-300 px-3 py-2.5 text-sm outline-none focus:border-amber-600"
+                className={inputClass}
               >
-                <option value="">Select member</option>
+                <option value="">Choose a person</option>
                 {members.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.display_name}
@@ -191,24 +184,42 @@ export default function RelationshipsPage() {
             </div>
           </div>
 
-          <p className="text-xs text-stone-500">
-            Reads as: <span className="font-medium">[From]</span> is the{" "}
-            <span className="font-medium">[relationship]</span> of{" "}
-            <span className="font-medium">[To]</span>.
+          <div>
+            <label className="block text-sm font-medium text-ink-900">
+              Bond<span className="text-ember-600"> *</span>
+            </label>
+            <select
+              required
+              value={relType}
+              onChange={(e) => setRelType(e.target.value)}
+              className={inputClass}
+            >
+              <option value="">What is the bond?</option>
+              {RELATIONSHIP_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <p className="font-display text-lg italic text-ink-700">
+            {memberName(sourceId) || "…"} is the {relType ? relType.replace("_", " ") : "…"} of{" "}
+            {memberName(targetId) || "…"}.
           </p>
 
           <div className="flex gap-3">
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800 disabled:opacity-60"
+              className="rounded-full bg-ink-900 px-5 py-2.5 text-sm font-semibold text-parchment-50 transition hover:bg-ember-700 disabled:opacity-60"
             >
-              {saving ? "Linking…" : "Create link"}
+              {saving ? "Tying…" : "Tie the thread"}
             </button>
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-100"
+              className="rounded-full border border-ink-900/20 px-5 py-2.5 text-sm font-medium text-ink-700 transition hover:bg-parchment-50"
             >
               Cancel
             </button>
@@ -220,15 +231,15 @@ export default function RelationshipsPage() {
         {relationships === null ? (
           <div className="space-y-3">
             {[0, 1].map((i) => (
-              <div key={i} className="h-16 animate-pulse rounded-xl bg-stone-200/70" />
+              <div key={i} className="h-16 animate-pulse rounded-2xl bg-parchment-200/70" />
             ))}
           </div>
         ) : relationships.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-stone-300 bg-white p-12 text-center">
-            <p className="text-lg font-medium text-stone-900">No links yet</p>
-            <p className="mx-auto mt-1 max-w-sm text-sm text-stone-600">
-              Connect parents to children, siblings to each other — the tree takes shape from
-              these links.
+          <div className="rounded-2xl border border-dashed border-parchment-300 bg-parchment-100 p-12 text-center">
+            <p className="font-display text-2xl font-medium">No threads tied yet</p>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-ink-700">
+              Connect parents to children, siblings to each other — the tree takes shape
+              from these threads.
             </p>
           </div>
         ) : (
@@ -236,22 +247,24 @@ export default function RelationshipsPage() {
             {relationships.map((r) => (
               <li
                 key={r.id}
-                className="flex items-center justify-between rounded-xl border border-stone-200 bg-white p-4 shadow-sm"
+                className="flex items-center justify-between gap-4 rounded-2xl border border-parchment-300 bg-parchment-100 p-4"
               >
-                <p className="text-sm text-stone-800">
-                  <span className="font-medium">{memberName(r.source_member_id)}</span>
-                  <span className="mx-2 text-stone-400">—</span>
-                  <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-800">
+                <p className="text-sm text-ink-900">
+                  <span className="font-display text-base font-semibold">
+                    {memberName(r.source_member_id)}
+                  </span>
+                  <span className="mx-2 inline-block rounded-full bg-ember-600 px-2.5 py-0.5 align-middle font-mono text-[11px] text-parchment-50">
                     {r.relationship_type.replace("_", " ")}
                   </span>
-                  <span className="mx-2 text-stone-400">→</span>
-                  <span className="font-medium">{memberName(r.target_member_id)}</span>
+                  <span className="font-display text-base font-semibold">
+                    {memberName(r.target_member_id)}
+                  </span>
                 </p>
                 <button
                   onClick={() => onDelete(r.id)}
-                  className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                  className="shrink-0 rounded-full border border-red-300 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-50"
                 >
-                  Remove
+                  Untie
                 </button>
               </li>
             ))}

@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS users (
@@ -128,3 +129,6 @@ CREATE INDEX IF NOT EXISTS idx_myth_chapters_user_id ON myth_chapters (user_id);
 CREATE INDEX IF NOT EXISTS idx_ancestor_profiles_user_id ON ancestor_profiles (user_id);
 CREATE INDEX IF NOT EXISTS idx_guidance_sessions_user_id ON guidance_sessions (user_id);
 CREATE INDEX IF NOT EXISTS idx_media_assets_user_id ON media_assets (user_id);
+
+-- +goose Down
+DROP TABLE IF EXISTS privacy_settings, media_assets, guidance_sessions, ancestor_profiles, myth_chapters, wisdom_extracts, stories, relationships, family_members, users;

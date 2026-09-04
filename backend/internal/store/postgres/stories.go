@@ -84,14 +84,14 @@ func (r StoryRepository) ListByUserID(ctx context.Context, userID string) ([]dom
 	return stories, nil
 }
 
-func (r StoryRepository) GetByID(ctx context.Context, id string) (domain.Story, error) {
+func (r StoryRepository) GetByIDForUser(ctx context.Context, id, userID string) (domain.Story, error) {
 	query := `
 		SELECT id, user_id, family_member_id, title, content, source_type, source_language,
 		       COALESCE(summary, ''), occurred_at, created_at, updated_at
 		FROM stories
-		WHERE id = $1`
+		WHERE id = $1 AND user_id = $2`
 
-	story, err := r.queryOne(ctx, query, id)
+	story, err := r.queryOne(ctx, query, id, userID)
 	if err != nil {
 		return domain.Story{}, fmt.Errorf("get story by id: %w", err)
 	}
@@ -102,8 +102,7 @@ func (r StoryRepository) GetByID(ctx context.Context, id string) (domain.Story, 
 func (r StoryRepository) Update(ctx context.Context, params UpsertStoryParams) (domain.Story, error) {
 	query := `
 		UPDATE stories
-		SET user_id = $2,
-		    family_member_id = $3,
+		SET family_member_id = $3,
 		    title = $4,
 		    content = $5,
 		    source_type = $6,
@@ -111,7 +110,7 @@ func (r StoryRepository) Update(ctx context.Context, params UpsertStoryParams) (
 		    summary = NULLIF($8, ''),
 		    occurred_at = $9,
 		    updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND user_id = $2
 		RETURNING id, user_id, family_member_id, title, content, source_type, source_language,
 		          COALESCE(summary, ''), occurred_at, created_at, updated_at`
 
@@ -133,8 +132,8 @@ func (r StoryRepository) Update(ctx context.Context, params UpsertStoryParams) (
 	return story, nil
 }
 
-func (r StoryRepository) Delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM stories WHERE id = $1`, id)
+func (r StoryRepository) Delete(ctx context.Context, id, userID string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM stories WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("delete story: %w", err)
 	}

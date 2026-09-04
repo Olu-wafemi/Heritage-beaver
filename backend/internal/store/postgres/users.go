@@ -33,7 +33,7 @@ func (r UserRepository) Create(ctx context.Context, params CreateUserParams) (do
 	query := `
 		INSERT INTO users (email, display_name, primary_culture, password_hash)
 		VALUES ($1, $2, COALESCE(NULLIF($3, ''), 'yoruba'), $4)
-		RETURNING id, email, display_name, primary_culture, password_hash, created_at, updated_at`
+		RETURNING id, email, display_name, primary_culture, password_hash, email_verified, created_at, updated_at`
 
 	var user domain.User
 	err := r.db.QueryRowContext(ctx, query, params.Email, params.DisplayName, params.PrimaryCulture, params.PasswordHash).Scan(
@@ -42,6 +42,7 @@ func (r UserRepository) Create(ctx context.Context, params CreateUserParams) (do
 		&user.DisplayName,
 		&user.PrimaryCulture,
 		&user.PasswordHash,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -54,7 +55,7 @@ func (r UserRepository) Create(ctx context.Context, params CreateUserParams) (do
 
 func (r UserRepository) List(ctx context.Context) ([]domain.User, error) {
 	query := `
-		SELECT id, email, display_name, primary_culture, password_hash, created_at, updated_at
+		SELECT id, email, display_name, primary_culture, password_hash, email_verified, created_at, updated_at
 		FROM users
 		ORDER BY created_at DESC`
 
@@ -67,7 +68,7 @@ func (r UserRepository) List(ctx context.Context) ([]domain.User, error) {
 	users := make([]domain.User, 0)
 	for rows.Next() {
 		var user domain.User
-		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.PrimaryCulture, &user.PasswordHash, &user.CreatedAt, &user.UpdatedAt); err != nil {
+		if err := rows.Scan(&user.ID, &user.Email, &user.DisplayName, &user.PrimaryCulture, &user.PasswordHash, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan user: %w", err)
 		}
 
@@ -83,7 +84,7 @@ func (r UserRepository) List(ctx context.Context) ([]domain.User, error) {
 
 func (r UserRepository) GetByID(ctx context.Context, id string) (domain.User, error) {
 	query := `
-		SELECT id, email, display_name, primary_culture, password_hash, created_at, updated_at
+		SELECT id, email, display_name, primary_culture, password_hash, email_verified, created_at, updated_at
 		FROM users
 		WHERE id = $1`
 
@@ -94,6 +95,7 @@ func (r UserRepository) GetByID(ctx context.Context, id string) (domain.User, er
 		&user.DisplayName,
 		&user.PrimaryCulture,
 		&user.PasswordHash,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -106,7 +108,7 @@ func (r UserRepository) GetByID(ctx context.Context, id string) (domain.User, er
 
 func (r UserRepository) GetByEmail(ctx context.Context, email string) (domain.User, error) {
 	query := `
-		SELECT id, email, display_name, primary_culture, password_hash, created_at, updated_at
+		SELECT id, email, display_name, primary_culture, password_hash, email_verified, created_at, updated_at
 		FROM users
 		WHERE email = $1`
 
@@ -117,6 +119,7 @@ func (r UserRepository) GetByEmail(ctx context.Context, email string) (domain.Us
 		&user.DisplayName,
 		&user.PrimaryCulture,
 		&user.PasswordHash,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -134,7 +137,7 @@ func (r UserRepository) Update(ctx context.Context, params UpdateUserParams) (do
 		    primary_culture = COALESCE(NULLIF($3, ''), primary_culture),
 		    updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, email, display_name, primary_culture, password_hash, created_at, updated_at`
+		RETURNING id, email, display_name, primary_culture, password_hash, email_verified, created_at, updated_at`
 
 	var user domain.User
 	err := r.db.QueryRowContext(ctx, query, params.ID, params.DisplayName, params.PrimaryCulture).Scan(
@@ -143,6 +146,7 @@ func (r UserRepository) Update(ctx context.Context, params UpdateUserParams) (do
 		&user.DisplayName,
 		&user.PrimaryCulture,
 		&user.PasswordHash,
+		&user.EmailVerified,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -151,6 +155,15 @@ func (r UserRepository) Update(ctx context.Context, params UpdateUserParams) (do
 	}
 
 	return user, nil
+}
+
+func (r UserRepository) SetEmailVerified(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET email_verified = TRUE, updated_at = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("set email verified: %w", err)
+	}
+
+	return nil
 }
 
 func (r UserRepository) Delete(ctx context.Context, id string) error {
